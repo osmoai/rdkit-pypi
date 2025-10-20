@@ -1,0 +1,6 @@
+[submodule "external/bcfp"]
+	path = external/bcfp
+	url = https://github.com/osmoai/bcfp
+[submodule "external/molftp"]
+	path = external/molftp
+	url = https://github.com/osmoai/molftp
