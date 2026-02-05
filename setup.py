@@ -12,7 +12,7 @@ from setuptools import Extension, find_packages, setup
 from setuptools.command.build_ext import build_ext as build_ext_orig
 
 # RDKit version to build (tag from github repository)
-rdkit_tag = "Release_2025_09_4"
+rdkit_tag = "calcphyschemprop-release-2025.09.4-v2"
 
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
@@ -110,7 +110,7 @@ class BuildRDKit(build_ext_orig):
 
         # Clone RDKit from git at rdkit_tag
         check_call(
-            ["git", "clone", "-b", f"{ext.rdkit_tag}", "https://github.com/rdkit/rdkit"]
+            ["git", "clone", "-b", f"{ext.rdkit_tag}", "https://github.com/guillaume-osmo/rdkit-osmordred"]
         )
 
         # Location of license file
@@ -120,7 +120,7 @@ class BuildRDKit(build_ext_orig):
         os.chdir(str("rdkit"))
         if rdkit_tag == "Release_2025_09_4":
             # Cherry-pick fix for MolAlign: brace-init BestAlignmentParams in wrapper
-            # https://github.com/rdkit/rdkit/pull/9042/commits/7c15baca9d662506b61d3395a0d5139be2b67640
+            # https://github.com/guillaume-osmo/rdkit-osmordred/pull/9042/commits/7c15baca9d662506b61d3395a0d5139be2b67640
             check_call(["git", "config", "--global", "user.email", '"you@example.com"'])
             check_call(["git", "config", "--global", "user.name", '"Your Name"'])
             check_call(["git", "fetch", "origin", "pull/9042/head:pr_9042"])
@@ -136,7 +136,7 @@ class BuildRDKit(build_ext_orig):
             )
 
         # if rdkit_tag == "Release_2025_03_3":
-        #     # https://github.com/rdkit/rdkit/pull/8399/commits/e5b1e3caf0c362139a5905575b5f995c470b9300
+        #     # https://github.com/guillaume-osmo/rdkit-osmordred/pull/8399/commits/e5b1e3caf0c362139a5905575b5f995c470b9300
         #     check_call(["git", "config", "--global", "user.email", '"you@example.com"'])
         #     check_call(["git", "config", "--global", "user.name", '"Your Name"'])
         #     check_call(["git", "fetch", "origin", "pull/8477/head:tag_release"])
@@ -274,7 +274,7 @@ class BuildRDKit(build_ext_orig):
                 f"-DCMAKE_VERBOSE_MAKEFILE=ON" # Increase verbosity
             ]
             # for python 3.13 and 3.14 macOS ARM64, 'CFLAGS', 'LDFLAGS', 'LDSHARED', 'BLDSHARED'  contains '-arch x86_64'
-            #  see https://github.com/rdkit/rdkit/blob/498f57a4eb99a67d842cbc3f89f94b302f398a11/CMakeLists.txt#L376C59-L376C95
+            #  see https://github.com/guillaume-osmo/rdkit-osmordred/blob/498f57a4eb99a67d842cbc3f89f94b302f398a11/CMakeLists.txt#L376C59-L376C95
             # remove "-arch x86_64" from PYTHON_LDSHARED
             if "cp313" in os.environ["CIBW_BUILD"] or "cp314" in os.environ["CIBW_BUILD"]:
                 old =  '${Python3_EXECUTABLE} -c "import sysconfig; print(sysconfig.get_config_var(\'LDSHARED\').lstrip().split(\' \', 1)[1])"'
@@ -463,7 +463,7 @@ class BuildRDKit(build_ext_orig):
 
         # Delete some large files from the Contrib folder
         # that are not necessary for running RDKit
-        # See https://github.com/rdkit/rdkit/issues/5601
+        # See https://github.com/guillaume-osmo/rdkit-osmordred/issues/5601
         _dir = wheel_path / "rdkit" / "Contrib" / "NIBRSubstructureFilters"
         rmtree(str(_dir / "examples"))
         (_dir / "FilterSet_NIBR2019_wPubChemExamples.html").unlink()
@@ -480,14 +480,14 @@ class BuildRDKit(build_ext_orig):
 
 setup(
     name="rdkit",
-    version=rdkit_tag.replace("Release_", "").replace("_", "."),
+    version="2025.9.4+osmordred",
     description="A collection of chemoinformatics and machine-learning software written in C++ and Python",
     author="Christopher Kuenneth",
     author_email="chris@kuenneth.dev",
     url="https://github.com/kuelumbus/rdkit-pypi",
     project_urls={
         "RDKit": "http://rdkit.org/",
-        "RDKit on Github": "https://github.com/rdkit/rdkit",
+        "RDKit on Github": "https://github.com/guillaume-osmo/rdkit-osmordred",
     },
     license="BSD-3-Clause",
     long_description=long_description,
