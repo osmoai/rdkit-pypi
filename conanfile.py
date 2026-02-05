@@ -33,6 +33,14 @@ class RDKitConan(ConanFile):
             self.options["boost/*"].without_python_lib = False
         else:
             self.options["boost/*"].without_python_lib = True
+        
+        # Disable gettext to avoid stuck configure scripts on macOS
+        # RDKit doesn't need internationalization support
+        try:
+            self.options["libgettext/*"].shared = False
+            self.options["fontconfig/*"].with_iconv = False
+        except:
+            pass  # Options may not exist depending on dependency tree
 
     def requirements(self):
         # Main boost requirement - use modified version
@@ -40,13 +48,14 @@ class RDKitConan(ConanFile):
         # self.requires("boost/1.85.0")
         
         # Platform-specific requirements
-        if self.settings.os == "Macos" and os.environ.get("CIBW_BUILD", "").startswith("cp"):
-            # macOS libraries to meet development target
-            self.requires("pixman/0.43.4")
-            self.requires("cairo/1.18.0") 
-            self.requires("libpng/1.6.43")
-            self.requires("fontconfig/2.15.0")
-            self.requires("freetype/2.13.2")
+        # DISABLED for macOS ARM64: Cairo and dependencies can cause build hangs
+        # RDKit will use system libraries or disable cairo support
+        # if self.settings.os == "Macos" and os.environ.get("CIBW_BUILD", "").startswith("cp"):
+        #     self.requires("pixman/0.43.4")
+        #     self.requires("cairo/1.18.0") 
+        #     self.requires("libpng/1.6.43")
+        #     self.requires("fontconfig/2.15.0")
+        #     self.requires("freetype/2.13.2")
 
     def build_requirements(self):
         pass
