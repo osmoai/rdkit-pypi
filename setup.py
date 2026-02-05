@@ -110,7 +110,7 @@ class BuildRDKit(build_ext_orig):
 
         # Clone RDKit from git at rdkit_tag
         check_call(
-            ["git", "clone", "-b", f"{ext.rdkit_tag}", "https://github.com/rdkit/rdkit"]
+            ["git", "clone", "-b", f"{ext.rdkit_tag}", "https://github.com/bp-kelley/rdkit"]
         )
 
         # Location of license file
@@ -153,6 +153,13 @@ class BuildRDKit(build_ext_orig):
             'target_link_libraries(rdkit_py_base INTERFACE "Boost::python${Python3_VERSION_MAJOR}${Python3_VERSION_MINOR}" "Boost::numpy${Python3_VERSION_MAJOR}${Python3_VERSION_MINOR}")',
             'target_link_libraries(rdkit_py_base INTERFACE "boost::python${Python3_VERSION_MAJOR}${Python3_VERSION_MINOR}" "boost::numpy${Python3_VERSION_MAJOR}${Python3_VERSION_MINOR}")',
         )
+
+        if "linux" in sys.platform:
+            replace_all(
+                "External/Osmordred/CMakeLists.txt",
+                "include_directories(Osmordred LAPACK::LAPACK ${LAPACK_INCLUDE_DIRS})",
+                "include_directories(Osmordred /usr/include/lapacke)"
+            )
 
         if "macosx" in os.environ["CIBW_BUILD"]:
             # Replace Cairo with cairo because conan uses lower case target names
@@ -354,7 +361,7 @@ class BuildRDKit(build_ext_orig):
 
         elif "darwin" in sys.platform:
             # Github actions
-            to_path = Path("/Users/runner/work/lib")
+            to_path = Path.home() / "work/lib"
             if "CIRRUS_CI" in os.environ:
                 # on cirrus CI
                 to_path = Path("/Users/admin/lib")
@@ -464,7 +471,7 @@ class BuildRDKit(build_ext_orig):
 
 setup(
     name="rdkit",
-    version=rdkit_tag.replace("Release_", "").replace("_", "."),
+    version=rdkit_tag.replace("Release_", "").replace("_", ".") + "+osmordred",
     description="A collection of chemoinformatics and machine-learning software written in C++ and Python",
     author="Christopher Kuenneth",
     author_email="chris@kuenneth.dev",
@@ -481,7 +488,7 @@ setup(
         "Pillow",
     ],
     ext_modules=[
-        RDKit("rdkit", rdkit_tag=rdkit_tag),
+        RDKit("rdkit", rdkit_tag="osmordred"),
     ],
     cmdclass=dict(build_ext=BuildRDKit),
 )
