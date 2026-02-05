@@ -11,9 +11,9 @@ from textwrap import dedent
 from setuptools import Extension, find_packages, setup
 from setuptools.command.build_ext import build_ext as build_ext_orig
 
-# RDKit version to build (tag/branch from github repository)
+# RDKit version to build (tag from github repository)
 # Using custom rdkit-osmordred with Osmordred, RDKit217, and SMARTS291 features
-rdkit_tag = "calcphyschemprop-release-2025.09.3"
+rdkit_tag = "calcphyschemprop-release-2025.09.3-v1"
 rdkit_repo = "https://github.com/guillaume-osmo/rdkit-osmordred.git"
 
 with open("README.md", "r", encoding="utf-8") as fh:
