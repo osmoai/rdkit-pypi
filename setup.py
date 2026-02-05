@@ -14,6 +14,17 @@ from setuptools.command.build_ext import build_ext as build_ext_orig
 # RDKit version to build (tag from github repository)
 rdkit_tag = "Release_2025_03_6"
 
+# Parse version correctly (remove leading zeros for PEP 440 compliance)
+def parse_version(tag):
+    """Convert Release_YYYY_MM_N to YYYY.M.N format (PEP 440 compliant)"""
+    version_str = tag.replace("Release_", "").replace("_", ".")
+    # Remove leading zeros from version parts
+    parts = version_str.split(".")
+    normalized_parts = [str(int(p)) for p in parts]
+    return ".".join(normalized_parts)
+
+rdkit_version = parse_version(rdkit_tag)
+
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
@@ -108,10 +119,20 @@ class BuildRDKit(build_ext_orig):
         rdkit_install_path = build_path / "rdkit_install"
         rdkit_install_path.mkdir(parents=True, exist_ok=True)
 
-        # Clone RDKit from git at rdkit_tag
-        check_call(
-            ["git", "clone", "-b", f"{ext.rdkit_tag}", "https://github.com/bp-kelley/rdkit"]
-        )
+        # Use local RDKit source (osmordred branch) instead of cloning
+        rdkit_source_path = cwd / "rdkit-source"
+        if not rdkit_source_path.exists():
+            raise RuntimeError(
+                "RDKit source not found! Please clone it with:\n"
+                "git clone -b osmordred https://github.com/bp-kelley/rdkit.git rdkit-source"
+            )
+        
+        # Copy RDKit source to build directory
+        print(f"Copying RDKit source from {rdkit_source_path} to {build_path / 'rdkit'}")
+        import shutil
+        if (build_path / "rdkit").exists():
+            rmtree(str(build_path / "rdkit"))
+        shutil.copytree(str(rdkit_source_path), str(build_path / "rdkit"))
 
         # Location of license file
         license_file = build_path / "rdkit" / "license.txt"
@@ -161,7 +182,8 @@ class BuildRDKit(build_ext_orig):
                 "include_directories(Osmordred /usr/include/lapacke)"
             )
 
-        if "macosx" in os.environ["CIBW_BUILD"]:
+        # Fix Cairo target names on macOS (only when using cibuildwheel)
+        if sys.platform == "darwin" and ("CIBW_BUILD" in os.environ) and ("macosx" in os.environ["CIBW_BUILD"]):
             # Replace Cairo with cairo because conan uses lower case target names
             # only on MacOS cairo is installed using conan
             replace_all(
@@ -202,8 +224,14 @@ class BuildRDKit(build_ext_orig):
             "-DRDK_BUILD_YAEHMOP_SUPPORT=ON",
             "-DRDK_BUILD_XYZ2MOL_SUPPORT=ON",
             "-DRDK_INSTALL_INTREE=OFF",
-            "-DRDK_BUILD_CAIRO_SUPPORT=ON",
+            "-DRDK_BUILD_CAIRO_SUPPORT=OFF",  # TODO: Fix Cairo target detection on ARM macOS
             "-DRDK_BUILD_FREESASA_SUPPORT=ON",
+            "-DRDK_BUILD_OSMORDRED_SUPPORT=ON",
+            # For osmordred: point to Homebrew LAPACK/LAPACKE
+            "-DLAPACK_ROOT=/opt/homebrew",
+            "-DLAPACKE_ROOT=/opt/homebrew",
+            # Add our custom FindLAPACKE.cmake to the module path
+            "-DCMAKE_MODULE_PATH=/Users/guillaume-osmo/Github/rdkit-pypi",
             # Disable system libs for finding boost
             "-DBoost_NO_SYSTEM_PATHS=ON",
             # build stuff
@@ -238,14 +266,22 @@ class BuildRDKit(build_ext_orig):
 
         # Modifications for MacOS all
         if sys.platform == "darwin":
+            # Add LAPACKE header path for osmordred support
+            # Use sys.prefix to get current Python environment's include directory
+            conda_include = f"{sys.prefix}/include"
+            # Point to Homebrew Cairo for native ARM support
+            homebrew_prefix = "/opt/homebrew"
             options += [
-                "-DCMAKE_C_FLAGS=-Wno-implicit-function-declaration",
+                f'-DCMAKE_C_FLAGS="-Wno-implicit-function-declaration -I{conda_include}"',
                 # CATCH_CONFIG_NO_CPP17_UNCAUGHT_EXCEPTIONS because MacOS does not fully support C++17.
-                '-DCMAKE_CXX_FLAGS="-Wno-implicit-function-declaration -DCATCH_CONFIG_NO_CPP17_UNCAUGHT_EXCEPTIONS"',
+                f'-DCMAKE_CXX_FLAGS="-Wno-implicit-function-declaration -DCATCH_CONFIG_NO_CPP17_UNCAUGHT_EXCEPTIONS -I{conda_include}"',
+                # Use Homebrew Cairo (native ARM build, no dependency conflicts)
+                # Set PKG_CONFIG_PATH so CMake can find cairo.pc
+                f"-DCMAKE_PREFIX_PATH={homebrew_prefix}",
             ]
 
         # Modification for MacOS x86_64
-        if "macosx_x86_64" in os.environ["CIBW_BUILD"]:
+        if ("CIBW_BUILD" in os.environ) and ("macosx_x86_64" in os.environ["CIBW_BUILD"]):
             options += [
                 # macOS < 10.13 has a incomplete C++17 implementation
                 # See https://github.com/kuelumbus/rdkit-pypi/pull/85 for a discussion
@@ -253,7 +289,7 @@ class BuildRDKit(build_ext_orig):
             ]
 
         # Modifications for MacOS arm64 (M1 hardware)
-        if "macosx_arm64" in os.environ["CIBW_BUILD"]:
+        if ("CIBW_BUILD" in os.environ) and ("macosx_arm64" in os.environ["CIBW_BUILD"]):
             options += [
                 "-DRDK_OPTIMIZE_POPCNT=OFF",
                 # Otherwise, cmake tries to link the system freetype
@@ -265,31 +301,33 @@ class BuildRDKit(build_ext_orig):
                 f"-DCMAKE_VERBOSE_MAKEFILE=ON" # Increase verbosity
             ]
             # for python 3.13 and 3.14 macOS ARM64, 'CFLAGS', 'LDFLAGS', 'LDSHARED', 'BLDSHARED'  contains '-arch x86_64'
-            #  see https://github.com/rdkit/rdkit/blob/498f57a4eb99a67d842cbc3f89f94b302f398a11/CMakeLists.txt#L376C59-L376C95
             # remove "-arch x86_64" from PYTHON_LDSHARED
-            if "cp313" in os.environ["CIBW_BUILD"] or "cp314" in os.environ["CIBW_BUILD"]:
-                old =  '${Python3_EXECUTABLE} -c "import sysconfig; print(sysconfig.get_config_var(\'LDSHARED\').lstrip().split(\' \', 1)[1])"'
-                new = '${Python3_EXECUTABLE} -c "import sysconfig; print(sysconfig.get_config_var(\'LDSHARED\').lstrip().split(\' \', 1)[1].replace(\'-arch x86_64\', \'\'))"'
+            if ("CIBW_BUILD" in os.environ) and ("cp313" in os.environ["CIBW_BUILD"] or "cp314" in os.environ["CIBW_BUILD"]):
+                old =  '${Python3_EXECUTABLE} -c "import sysconfig; print(sysconfig.get_config_var(\'LDSHARED\').lstrip().split(\' \' , 1)[1])"'
+                new = '${Python3_EXECUTABLE} -c "import sysconfig; print(sysconfig.get_config_var(\'LDSHARED\').lstrip().split(\' \' , 1)[1].replace(\'-arch x86_64\', \'\'))"'
                 replace_all("CMakeLists.txt", old, new)
 
 
+        # Determine number of parallel jobs (use 10 cores for faster build)
+        num_jobs = os.environ.get('CMAKE_BUILD_PARALLEL_LEVEL', '10')
+        
         if "linux" in sys.platform:
             # Use ninja for linux builds
             cmds = [
                 f"cmake -S . -B build -G Ninja --debug-find-pkg=Python3 {' '.join(options)} ",
-                "cmake --build build --config Release",
+                f"cmake --build build --config Release -j {num_jobs}",
                 "cmake --install build",
             ]
         elif sys.platform == "win32":
             cmds = [
                 f"cmake -S . -B build --debug-find-pkg=Python3 {' '.join(options)} ",
-                "cmake --build build --config Release -v",
+                f"cmake --build build --config Release -v -j {num_jobs}",
                 "cmake --install build",
             ]
         else:
             cmds = [
                 f"cmake -S . -B build -LAH --debug-find-pkg=Python3 {' '.join(options)} ",
-                "cmake --build build --config Release",
+                f"cmake --build build --config Release -j {num_jobs}",
                 "cmake --install build",
             ]
 
@@ -310,6 +348,9 @@ class BuildRDKit(build_ext_orig):
         print("!!! --- CMAKE build command and variables for RDKit", file=sys.stderr)
         print(cmds, file=sys.stderr)
         variables = {}
+        # Set PKG_CONFIG_PATH for macOS to find Homebrew packages like Cairo
+        if sys.platform == "darwin":
+            variables["PKG_CONFIG_PATH"] = f"/opt/homebrew/lib/pkgconfig:{os.environ.get('PKG_CONFIG_PATH', '')}"
         print(variables, file=sys.stderr)
 
         # Run CMake and install RDKit
@@ -468,17 +509,170 @@ class BuildRDKit(build_ext_orig):
         # Copy the license
         copy_file(str(license_file), str(wheel_path / "rdkit"))
 
+        # ====================================================================
+        # Bundle RDKit headers and libraries inside the wheel
+        # ====================================================================
+        try:
+            # 1) Headers
+            headers_src = rdkit_install_path / "include"
+            headers_dst = wheel_path / "rdkit" / "include"
+            if headers_src.exists():
+                copytree(headers_src, headers_dst, ignore=_logpath)
+
+            # 2) Native libraries
+            libs_dst = wheel_path / "rdkit" / ".dylibs"
+            libs_dst.mkdir(parents=True, exist_ok=True)
+
+            rdkit_lib_path = rdkit_install_path / "lib"
+            boost_lib_path = conan_toolchain_path / "direct_deploy" / "boost" / "lib"
+
+            if sys.platform == "darwin":
+                for f in rdkit_lib_path.rglob("*.dylib"):
+                    copy_file(str(f), str(libs_dst))
+                for f in boost_lib_path.rglob("*.dylib"):
+                    copy_file(str(f), str(libs_dst))
+            elif sys.platform.startswith("linux"):
+                for f in rdkit_lib_path.rglob("*.so*"):
+                    copy_file(str(f), str(libs_dst))
+                for f in boost_lib_path.rglob("*.so*"):
+                    copy_file(str(f), str(libs_dst))
+            elif sys.platform == "win32":
+                for pat in ("*.dll", "*.lib"):
+                    for f in rdkit_lib_path.rglob(pat):
+                        copy_file(str(f), str(libs_dst))
+                    for f in (conan_toolchain_path / "direct_deploy" / "boost" / "bin").rglob("*.dll"):
+                        copy_file(str(f), str(libs_dst))
+                    for f in boost_lib_path.rglob("*.lib"):
+                        copy_file(str(f), str(libs_dst))
+        except Exception as e:
+            print(f"⚠️  Warning: Failed bundling headers/libs: {e}")
+
+        # ====================================================================
+        # Fix loader paths so bundled libs are found at runtime (no delocate)
+        # ====================================================================
+        try:
+            if sys.platform == "darwin":
+                import subprocess
+                # 1) Rewrite IDs and dependencies for bundled dylibs to @loader_path
+                dylibs = list((wheel_path / "rdkit" / ".dylibs").glob("*.dylib"))
+                dylib_names = {p.name for p in dylibs}
+                for p in dylibs:
+                    # Set install id to @loader_path/<name>
+                    subprocess.run(["install_name_tool", "-id", f"@loader_path/{p.name}", str(p)], check=False)
+                    # Try to rewrite any @rpath/<dep> to @loader_path/<dep>
+                    for dep in dylib_names:
+                        subprocess.run(["install_name_tool", "-change", f"@rpath/{dep}", f"@loader_path/{dep}", str(p)], check=False)
+                # 2) Rewrite rdkit *.so to point into ../.dylibs
+                so_files = list((wheel_path / "rdkit").glob("**/*.so"))
+                for so in so_files:
+                    for dep in dylib_names:
+                        subprocess.run(["install_name_tool", "-change", f"@rpath/{dep}", f"@loader_path/../.dylibs/{dep}", str(so)], check=False)
+            elif sys.platform.startswith("linux"):
+                import shutil
+                patchelf = shutil.which("patchelf")
+                if patchelf:
+                    so_files = list((wheel_path / "rdkit").glob("**/*.so"))
+                    for so in so_files:
+                        # Set RPATH to $ORIGIN/../.dylibs so bundled libs resolve
+                        subprocess.run([patchelf, "--set-rpath", "$ORIGIN/../.dylibs", str(so)], check=False)
+        except Exception as e:
+            print(f"⚠️  Warning: rpath fix step failed: {e}")
+
+        # ====================================================================
+        # Build and copy MolFTP
+        # ====================================================================
+        print("\n" + "="*70)
+        print("Building MolFTP C++ extension...")
+        print("="*70)
+        molftp_path = cwd / "molftp"
+        if molftp_path.exists():
+            try:
+                # Set environment variables to point to RDKit installation
+                build_env = os.environ.copy()
+                build_env['RDKIT_INCLUDE'] = str(rdkit_install_path / "include")
+                build_env['RDKIT_LIB'] = str(rdkit_install_path / "lib")
+                build_env['CONDA_PREFIX'] = str(rdkit_install_path)  # Trick molftp setup.py
+                
+                # Add Boost include path (from Conan)
+                boost_include = str(conan_toolchain_path / "direct_deploy" / "boost" / "include")
+                build_env['BOOST_INCLUDE'] = boost_include
+                
+                print(f"📍 RDKit include path: {build_env['RDKIT_INCLUDE']}")
+                print(f"📍 RDKit lib path: {build_env['RDKIT_LIB']}")
+                print(f"📍 Boost include path: {boost_include}")
+                
+                # Build MolFTP C++ extension
+                check_call([sys.executable, "setup.py", "build_ext", "--inplace"], 
+                          cwd=str(molftp_path), env=build_env)
+                
+                # Copy MolFTP Python package to wheel
+                molftp_dest = wheel_path / "molftp"
+                copytree(str(molftp_path / "molftp"), str(molftp_dest), ignore=ignore_patterns('__pycache__', '*.pyc'))
+                
+                # Copy built C++ extensions
+                for ext_file in molftp_path.glob("_molftp*.so"):
+                    copy_file(str(ext_file), str(molftp_dest))
+                for ext_file in molftp_path.glob("_molftp*.pyd"):
+                    copy_file(str(ext_file), str(molftp_dest))
+                    
+                print("✅ MolFTP built and packaged")
+            except Exception as e:
+                print(f"⚠️  Warning: Could not build MolFTP: {e}")
+        else:
+            print("⚠️  MolFTP directory not found, skipping")
+
+        # ====================================================================
+        # Build and copy BCFP
+        # ====================================================================
+        print("\n" + "="*70)
+        print("Building BCFP C++ extension...")
+        print("="*70)
+        bcfp_path = cwd / "bcfp"
+        if bcfp_path.exists():
+            try:
+                # Set environment variables to point to RDKit installation
+                build_env = os.environ.copy()
+                build_env['RDKIT_INCLUDE'] = str(rdkit_install_path / "include")
+                build_env['RDKIT_LIB'] = str(rdkit_install_path / "lib")
+                build_env['CONDA_PREFIX'] = str(rdkit_install_path)  # Trick bcfp setup.py
+                
+                print(f"📍 RDKit include path: {build_env['RDKIT_INCLUDE']}")
+                print(f"📍 RDKit lib path: {build_env['RDKIT_LIB']}")
+                
+                # Build BCFP C++ extension
+                check_call([sys.executable, "setup.py", "build_ext", "--inplace"], 
+                          cwd=str(bcfp_path), env=build_env)
+                
+                # Copy BCFP Python package to wheel
+                bcfp_dest = wheel_path / "bcfp"
+                copytree(str(bcfp_path / "bcfp"), str(bcfp_dest), ignore=ignore_patterns('__pycache__', '*.pyc'))
+                
+                # Copy built C++ extensions
+                for ext_file in bcfp_path.glob("_bcfp*.so"):
+                    copy_file(str(ext_file), str(bcfp_dest))
+                for ext_file in bcfp_path.glob("_bcfp*.pyd"):
+                    copy_file(str(ext_file), str(bcfp_dest))
+                    
+                print("✅ BCFP built and packaged")
+            except Exception as e:
+                print(f"⚠️  Warning: Could not build BCFP: {e}")
+        else:
+            print("⚠️  BCFP directory not found, skipping")
+
 
 setup(
     name="rdkit",
-    version=rdkit_tag.replace("Release_", "").replace("_", ".") + "+osmordred",
-    description="A collection of chemoinformatics and machine-learning software written in C++ and Python",
-    author="Christopher Kuenneth",
+    version=rdkit_version + "+osmordred.molftp.bcfp",
+    description="RDKit with MolFTP and BCFP: Comprehensive chemoinformatics and molecular fingerprinting suite",
+    author="Christopher Kuenneth, Guillaume GODIN (Osmo labs pbc)",
     author_email="chris@kuenneth.dev",
-    url="https://github.com/kuelumbus/rdkit-pypi",
+    url="https://github.com/osmoai/rdkit-pypi",
     project_urls={
         "RDKit": "http://rdkit.org/",
         "RDKit on Github": "https://github.com/rdkit/rdkit",
+        "MolFTP": "https://github.com/osmoai/molftp",
+        "BCFP": "https://github.com/osmoai/bcfp",
+        "MolFTP Paper": "https://arxiv.org/abs/2510.06029",
     },
     license="BSD-3-Clause",
     long_description=long_description,
@@ -487,8 +681,15 @@ setup(
         "numpy",
         "Pillow",
     ],
+    # packages=["rdkit", "molftp", "bcfp"],  # Don't specify upfront, let build_ext handle it
     ext_modules=[
         RDKit("rdkit", rdkit_tag="osmordred"),
     ],
     cmdclass=dict(build_ext=BuildRDKit),
+    include_package_data=True,
+    package_data={
+        'rdkit': ['*.so', '*.pyd', '*.dylib', '*.dll', '.dylibs/*', 'include/**/*.h', 'include/**/**/*.h'],
+        'molftp': ['*.so', '*.pyd', '*.dylib', '*.dll'],
+        'bcfp': ['*.so', '*.pyd', '*.dylib', '*.dll'],
+    },
 )
