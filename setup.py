@@ -11,8 +11,10 @@ from textwrap import dedent
 from setuptools import Extension, find_packages, setup
 from setuptools.command.build_ext import build_ext as build_ext_orig
 
-# RDKit version to build (tag from github repository)
-rdkit_tag = "Release_2025_03_6"
+# RDKit version to build (tag/branch from github repository)
+# Using custom rdkit-osmordred with Osmordred, RDKit217, and SMARTS291 features
+rdkit_tag = "calcphyschemprop-release-2025.09.3"
+rdkit_repo = "https://github.com/guillaume-osmo/rdkit-osmordred.git"
 
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
@@ -109,8 +111,10 @@ class BuildRDKit(build_ext_orig):
         rdkit_install_path.mkdir(parents=True, exist_ok=True)
 
         # Clone RDKit from git at rdkit_tag
+        # Using custom rdkit-osmordred repo with Osmordred, RDKit217, SMARTS291 features
+        rdkit_repo_url = getattr(ext, 'rdkit_repo', "https://github.com/rdkit/rdkit")
         check_call(
-            ["git", "clone", "-b", f"{ext.rdkit_tag}", "https://github.com/rdkit/rdkit"]
+            ["git", "clone", "-b", f"{ext.rdkit_tag}", rdkit_repo_url, "rdkit"]
         )
 
         # Location of license file
@@ -197,6 +201,8 @@ class BuildRDKit(build_ext_orig):
             "-DRDK_INSTALL_INTREE=OFF",
             "-DRDK_BUILD_CAIRO_SUPPORT=ON",
             "-DRDK_BUILD_FREESASA_SUPPORT=ON",
+            # Custom Osmordred features (Osmordred, RDKit217, SMARTS291/Abraham)
+            "-DRDK_BUILD_OSMORDRED_SUPPORT=ON",
             # Disable system libs for finding boost
             "-DBoost_NO_SYSTEM_PATHS=ON",
             # build stuff
@@ -481,7 +487,7 @@ setup(
         "Pillow",
     ],
     ext_modules=[
-        RDKit("rdkit", rdkit_tag=rdkit_tag),
+        RDKit("rdkit", rdkit_tag=rdkit_tag, rdkit_repo=rdkit_repo),
     ],
     cmdclass=dict(build_ext=BuildRDKit),
 )

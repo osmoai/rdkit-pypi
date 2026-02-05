@@ -1,4 +1,43 @@
-# 🔥 RDKit Python Wheels
+# 🔥 RDKit Python Wheels (Osmo Fork with Custom Descriptors)
+
+This repository builds custom RDKit wheels with additional Osmo descriptors for physicochemical property prediction.
+
+## Custom Features (Osmo Extensions)
+
+This fork includes three additional descriptor sets not in the standard RDKit:
+
+### 1. Osmordred (3585 features)
+Extended Mordred descriptors with optimized C++ implementation.
+```python
+from rdkit.Chem import rdMolDescriptors
+features = rdMolDescriptors.CalcOsmordred("CCO")  # Returns 3585 features
+# Batch version with parallel processing:
+batch_features = rdMolDescriptors.CalcOsmordredBatch(["CCO", "CCCO"], n_jobs=8)
+```
+
+### 2. RDKit217 (217 features)
+Standard RDKit descriptors in a fixed order, matching Python `Descriptors.descList`.
+```python
+from rdkit.Chem import rdMolDescriptors
+features = rdMolDescriptors.ExtractRDKitDescriptorsFromMol(mol)
+# Batch version:
+batch_features = rdMolDescriptors.ExtractRDKitDescriptorsBatch(["CCO", "CCCO"], n_jobs=8)
+```
+
+### 3. SMARTS291/Abraham Features (291 features)
+SMARTS-based features for Abraham solvation parameter prediction.
+```python
+from rdkit.Chem import rdMolDescriptors
+features = rdMolDescriptors.CalcAbrahamFeatures("CCO")  # Returns 291 features
+# Batch version:
+batch_features = rdMolDescriptors.CalcAbrahamFeaturesBatch(["CCO", "CCCO"], n_jobs=8)
+```
+
+## Source Repository
+
+Built from: [guillaume-osmo/rdkit-osmordred](https://github.com/guillaume-osmo/rdkit-osmordred)
+
+---
 
 This repository holds the code to build [RDKit](https://github.com/rdkit/rdkit) platform wheels for Linux, macOS, and Windows on Github Action and Circle CI. The wheels contain the compiled platform-specific dynamic libraries (`*.so`, `*.dylib`, and `*.dll`) and are available at [PyPI](https://pypi.org/project/rdkit/). RDKit can easily be installed using
 
