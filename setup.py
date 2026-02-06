@@ -15,52 +15,38 @@ from setuptools.command.build_ext import build_ext as build_ext_orig
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
-# Set via environment variable RDKIT_OSMORDRED_VERSION or defaults to v3
+# Set via environment variable RDKIT_OSMORDRED_VERSION
+# Format: YYYY-M-P (e.g., 2025-9-5)
+#
 # Examples:
-#   RDKIT_OSMORDRED_VERSION=2025-9-5-v3  (short form, recommended)
-#   RDKIT_OSMORDRED_VERSION=2025-9-4-v2
-#   RDKIT_OSMORDRED_VERSION=2025-9-3-v1
+#   RDKIT_OSMORDRED_VERSION=2025-9-5  (latest)
+#   RDKIT_OSMORDRED_VERSION=2025-9-4
+#   RDKIT_OSMORDRED_VERSION=2025-9-3
 #
 # Optional: RDKIT_CATCH2_LEGACY=0 or RDKIT_CATCH2_LEGACY=1
 #   Default is 1 (legacy mode) for maximum compatibility with older macOS SDKs.
 #   Set to 0 for modern macOS (SDK 26+) where std::uncaught_exception() was removed.
 #
 # Build command:
-#   RDKIT_OSMORDRED_VERSION=2025-9-5-v3 CIBW_BUILD=cp311-manylinux_x86_64 python3 -m cibuildwheel ...
+#   RDKIT_OSMORDRED_VERSION=2025-9-5 CIBW_BUILD=cp311-manylinux_x86_64 python3 -m cibuildwheel ...
 #
 # For older macOS:
-#   RDKIT_OSMORDRED_VERSION=2025-9-4-v2 RDKIT_CATCH2_LEGACY=1 CIBW_BUILD=cp311-macosx_arm64 pip wheel ...
+#   RDKIT_OSMORDRED_VERSION=2025-9-4 RDKIT_CATCH2_LEGACY=1 CIBW_BUILD=cp311-macosx_arm64 pip wheel ...
 # =============================================================================
 
 def parse_version_to_tag(version_input):
     """
     Parse version input and derive rdkit_tag and rdkit_version.
     
-    Input formats:
-      - With suffix: "2025-9-5-v3" or "2025-9-4-v2"
-      - Without suffix: "2025-9-3" (for branches without -vX)
+    Input format: "YYYY-M-P" (e.g., "2025-9-5")
     
     Returns: (rdkit_tag, rdkit_version)
     
-    Note: The branch suffix (v2, v3) is the RDKit branch version.
-          Osmordred is always v2, so the wheel version is always +osmordredv2.
-    
     Examples:
-      - "2025-9-5-v3" -> tag: calcphyschemprop-release-2025.09.5-v3, version: 2025.9.5+osmordredv2
-      - "2025-9-4-v2" -> tag: calcphyschemprop-release-2025.09.4-v2, version: 2025.9.4+osmordredv2
+      - "2025-9-5" -> tag: calcphyschemprop-release-2025.09.5, version: 2025.9.5+osmordredv2
+      - "2025-9-4" -> tag: calcphyschemprop-release-2025.09.4, version: 2025.9.4+osmordredv2
       - "2025-9-3" -> tag: calcphyschemprop-release-2025.09.3, version: 2025.9.3+osmordredv2
     """
-    # Try parsing with suffix first: 2025-9-5-v3
-    match = re.match(r"(\d+)-(\d+)-(\d+)-(v\d+)", version_input)
-    if match:
-        year, month, patch, suffix = match.groups()
-        month_padded = month.zfill(2)
-        rdkit_tag = f"calcphyschemprop-release-{year}.{month_padded}.{patch}-{suffix}"
-        # Osmordred is always v2 regardless of branch suffix
-        rdkit_version = f"{year}.{month}.{patch}+osmordredv2"
-        return rdkit_tag, rdkit_version
-    
-    # Try parsing without suffix: 2025-9-3
     match = re.match(r"(\d+)-(\d+)-(\d+)$", version_input)
     if match:
         year, month, patch = match.groups()
@@ -71,11 +57,11 @@ def parse_version_to_tag(version_input):
     
     raise ValueError(
         f"Cannot parse version: {version_input}\n"
-        f"Expected format: 2025-9-X-vY (e.g., 2025-9-5-v3) or 2025-9-X (e.g., 2025-9-3)"
+        f"Expected format: YYYY-M-P (e.g., 2025-9-5)"
     )
 
 # Get version from environment variable or use default
-version_input = os.environ.get("RDKIT_OSMORDRED_VERSION", "2025-9-5-v3")
+version_input = os.environ.get("RDKIT_OSMORDRED_VERSION", "2025-9-5")
 rdkit_tag, rdkit_version = parse_version_to_tag(version_input)
 
 # Source repository
