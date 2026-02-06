@@ -36,34 +36,43 @@ def parse_version_to_tag(version_input):
     """
     Parse version input and derive rdkit_tag and rdkit_version.
     
-    Input format: "2025-9-5-v3" or "2025-9-4-v2" or "2025-9-3-v1"
+    Input formats:
+      - With suffix: "2025-9-5-v3" or "2025-9-4-v2"
+      - Without suffix: "2025-9-3" (for branches without -vX)
     
     Returns: (rdkit_tag, rdkit_version)
+    
+    Note: The branch suffix (v2, v3) is the RDKit branch version.
+          Osmordred is always v2, so the wheel version is always +osmordredv2.
     
     Examples:
       - "2025-9-5-v3" -> tag: calcphyschemprop-release-2025.09.5-v3, version: 2025.9.5+osmordredv2
       - "2025-9-4-v2" -> tag: calcphyschemprop-release-2025.09.4-v2, version: 2025.9.4+osmordredv2
-      - "2025-9-3-v1" -> tag: calcphyschemprop-release-2025.09.3-v1, version: 2025.9.3+osmordredv2
+      - "2025-9-3" -> tag: calcphyschemprop-release-2025.09.3, version: 2025.9.3+osmordredv2
     """
-    # Parse: 2025-9-5-v3 -> year=2025, month=9, patch=5, suffix=v3
+    # Try parsing with suffix first: 2025-9-5-v3
     match = re.match(r"(\d+)-(\d+)-(\d+)-(v\d+)", version_input)
-    if not match:
-        raise ValueError(
-            f"Cannot parse version: {version_input}\n"
-            f"Expected format: 2025-9-X-vY (e.g., 2025-9-5-v3)"
-        )
+    if match:
+        year, month, patch, suffix = match.groups()
+        month_padded = month.zfill(2)
+        rdkit_tag = f"calcphyschemprop-release-{year}.{month_padded}.{patch}-{suffix}"
+        # Osmordred is always v2 regardless of branch suffix
+        rdkit_version = f"{year}.{month}.{patch}+osmordredv2"
+        return rdkit_tag, rdkit_version
     
-    year, month, patch, suffix = match.groups()
+    # Try parsing without suffix: 2025-9-3
+    match = re.match(r"(\d+)-(\d+)-(\d+)$", version_input)
+    if match:
+        year, month, patch = match.groups()
+        month_padded = month.zfill(2)
+        rdkit_tag = f"calcphyschemprop-release-{year}.{month_padded}.{patch}"
+        rdkit_version = f"{year}.{month}.{patch}+osmordredv2"
+        return rdkit_tag, rdkit_version
     
-    # Build the git tag: calcphyschemprop-release-2025.09.5-v3
-    # Month needs zero-padding: 9 -> 09
-    month_padded = month.zfill(2)
-    rdkit_tag = f"calcphyschemprop-release-{year}.{month_padded}.{patch}-{suffix}"
-    
-    # Build the wheel version: 2025.9.5+osmordredv2
-    rdkit_version = f"{year}.{month}.{patch}+osmordredv2"
-    
-    return rdkit_tag, rdkit_version
+    raise ValueError(
+        f"Cannot parse version: {version_input}\n"
+        f"Expected format: 2025-9-X-vY (e.g., 2025-9-5-v3) or 2025-9-X (e.g., 2025-9-3)"
+    )
 
 # Get version from environment variable or use default
 version_input = os.environ.get("RDKIT_OSMORDRED_VERSION", "2025-9-5-v3")
