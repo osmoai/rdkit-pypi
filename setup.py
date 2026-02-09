@@ -61,7 +61,7 @@ def parse_version_to_tag(version_input):
     )
 
 # Get version from environment variable or use default
-version_input = os.environ.get("RDKIT_OSMORDRED_VERSION", "2025-9-5")
+version_input = os.environ.get("RDKIT_OSMORDRED_VERSION", "2025-9-4")
 rdkit_tag, rdkit_version = parse_version_to_tag(version_input)
 
 # Source repository
@@ -370,6 +370,12 @@ class BuildRDKit(build_ext_orig):
             ]
             print("  Using Linux LAPACK at /usr/include/lapacke", file=sys.stderr)
 
+            # Fix problem with Python3_add_library
+            python_include = sysconfig.get_path("include")
+            if python_include:
+                options.append(f"-DPython3_INCLUDE_DIR={python_include}")
+                print(f"  Setting Python3_INCLUDE_DIR to {python_include}", file=sys.stderr)
+
         if "linux" in sys.platform:
             # Use ninja for linux builds
             cmds = [
@@ -390,14 +396,6 @@ class BuildRDKit(build_ext_orig):
                 "cmake --install build",
             ]
 
-        # Define the rdkit_files path
-        py_name = "python" + ".".join(map(str, sys.version_info[:2]))
-
-        path_site_packages = rdkit_install_path / "lib" / py_name / "site-packages"
-        if sys.platform == "win32":
-            path_site_packages = rdkit_install_path / "Lib" / "site-packages"
-
-
         print("---- Conf vars", file=sys.stderr)
         print(sysconfig.get_paths(), file=sys.stderr)
         print(sysconfig.get_config_vars(), file=sys.stderr)
@@ -417,6 +415,17 @@ class BuildRDKit(build_ext_orig):
             )
             for c in cmds
         ]
+
+        # Compute path_site_packages AFTER install (check which path CMake actually created)
+        py_name = "python" + ".".join(map(str, sys.version_info[:2]))
+        if sys.platform == "win32":
+            path_site_packages = rdkit_install_path / "Lib" / "site-packages"
+        else:
+            # On Linux, CMake may install to lib64 (manylinux) or lib (other platforms)
+            path_lib64 = rdkit_install_path / "lib64" / py_name / "site-packages"
+            path_lib = rdkit_install_path / "lib" / py_name / "site-packages"
+            path_site_packages = path_lib64 if path_lib64.exists() else path_lib
+        print(f"###### path_site_packages (after install): {path_site_packages} ######", file=sys.stderr)
 
         # --- Copy libs to system path
         # While repairing the wheels, the built libs need to be copied to the platform wheels
@@ -474,15 +483,14 @@ class BuildRDKit(build_ext_orig):
             [copy_file(i, str(to_path)) for i in boost_lib_path.rglob("*dylib")]
 
         # Build the RDKit stubs
+        # Set PYTHONPATH now that we know where rdkit was installed
+        variables["PYTHONPATH"] = (
+            os.environ.get("PYTHONPATH", "") + os.pathsep + str(path_site_packages)
+        )
 
         cmds += [
             f"cmake --build build --config Release --target stubs -v",
         ]
-
-        # rdkit-stubs require the site-package path to be in sys.path / PYTHONPATH
-        variables["PYTHONPATH"] = (
-            os.environ.get("PYTHONPATH", "") + os.pathsep + str(path_site_packages)
-        )
 
         print(
             "!!! --- CMAKE build command and variables for building stubs",
